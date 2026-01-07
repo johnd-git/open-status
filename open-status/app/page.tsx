@@ -2,16 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChainAutocomplete, type Chain } from "@/components/chain-autocomplete";
+import { SearchInput, type SearchResult } from "@/components/search-input";
 import { StatusResult } from "@/components/status-result";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import { StatusResponse } from "@/lib/types/status";
-import { trackSearch, trackLocationChange } from "@/lib/analytics";
+import { trackSearch } from "@/lib/analytics";
 import { MapPinIcon, SearchIcon, ClockIcon } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function HomePage() {
-  const [selectedChain, setSelectedChain] = useState<Chain | null>(null);
+  const [searchQuery, setSearchQuery] = useState<SearchResult | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,21 +19,21 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (selectedChain && location) {
-      trackSearch(selectedChain.slug);
+    if (searchQuery && location) {
+      trackSearch(searchQuery.slug);
       fetchStatus();
     }
-  }, [selectedChain, location]);
+  }, [searchQuery, location]);
 
   async function fetchStatus() {
-    if (!selectedChain || !location) return;
+    if (!searchQuery || !location) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
       const params = new URLSearchParams({
-        chain_slug: selectedChain.slug,
+        query: searchQuery.name,
         lat: location.lat.toString(),
         lng: location.lng.toString(),
       });
@@ -52,8 +52,8 @@ export default function HomePage() {
       const cityState =
         location.city && location.state
           ? `${location.city.toLowerCase().replace(/\s+/g, "-")}-${location.state.toLowerCase()}`
-          : "unknown";
-      router.push(`/${selectedChain.slug}/${cityState}`, { scroll: false });
+          : "nearby";
+      router.push(`/${searchQuery.slug}/${cityState}`, { scroll: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
       setStatus(null);
@@ -63,10 +63,14 @@ export default function HomePage() {
   }
 
   function handleNewSearch() {
-    setSelectedChain(null);
+    setSearchQuery(null);
     setStatus(null);
     setError(null);
     router.push("/", { scroll: false });
+  }
+
+  function handleSearch(query: SearchResult) {
+    setSearchQuery(query);
   }
 
   return (
@@ -86,10 +90,9 @@ export default function HomePage() {
             </button>
 
             <div className="flex-1 max-w-md">
-              <ChainAutocomplete
-                onSelect={setSelectedChain}
-                selectedChain={selectedChain}
-                placeholder="Search stores & restaurants..."
+              <SearchInput
+                onSearch={handleSearch}
+                placeholder="Search any business..."
               />
             </div>
 
@@ -110,7 +113,7 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {!selectedChain && !status && (
+        {!searchQuery && !status && (
           <div className="max-w-2xl mx-auto text-center py-20">
             <div className="mb-8">
               <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30 mb-6">
@@ -120,8 +123,7 @@ export default function HomePage() {
                 Is it open?
               </h1>
               <p className="text-lg text-muted-foreground max-w-md mx-auto">
-                Instantly check if your favorite stores and restaurants are open
-                right now, near you.
+                Search for any store, restaurant, or business to see if it&apos;s open right now.
               </p>
             </div>
 
@@ -135,8 +137,7 @@ export default function HomePage() {
             {!locationLoading && !location && (
               <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 max-w-md mx-auto">
                 <p className="text-amber-800 dark:text-amber-200 text-sm">
-                  Enable location access to find stores near you, or search by
-                  name above.
+                  Enable location access to find businesses near you.
                 </p>
               </div>
             )}
@@ -148,17 +149,16 @@ export default function HomePage() {
                   Popular searches
                 </p>
                 <div className="flex flex-wrap justify-center gap-2">
-                  {["Target", "Starbucks", "CVS", "Walmart", "Costco"].map(
+                  {["Target", "Starbucks", "CVS", "Walmart", "Costco", "McDonald's"].map(
                     (name) => (
                       <button
                         key={name}
                         onClick={() => {
-                          const chain = {
+                          handleSearch({
                             name,
-                            slug: name.toLowerCase(),
+                            slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
                             placeType: "store",
-                          };
-                          setSelectedChain(chain);
+                          });
                         }}
                         className="px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-sm font-medium transition-colors"
                       >
@@ -173,13 +173,13 @@ export default function HomePage() {
         )}
 
         {/* Results */}
-        {(selectedChain || status || isLoading || error) && (
+        {(searchQuery || status || isLoading || error) && (
           <div className="max-w-lg mx-auto">
             <StatusResult
               status={status}
               isLoading={isLoading}
               error={error}
-              chainName={selectedChain?.name}
+              chainName={searchQuery?.name}
               onNewSearch={handleNewSearch}
             />
           </div>

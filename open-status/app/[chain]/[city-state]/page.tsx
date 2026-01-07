@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { notFound, useParams, useRouter } from "next/navigation";
-import chainsData from "@/data/chains.json";
+import { useParams, useRouter } from "next/navigation";
 import { StatusResult } from "@/components/status-result";
-import { ChainAutocomplete, type Chain } from "@/components/chain-autocomplete";
+import { SearchInput, type SearchResult } from "@/components/search-input";
 import { StatusResponse } from "@/lib/types/status";
 import { trackViewHours } from "@/lib/analytics";
 import { MapPinIcon, ClockIcon } from "lucide-react";
@@ -19,16 +18,16 @@ export default function ChainCityPage() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedChain, setSelectedChain] = useState<Chain | null>(null);
 
-  const chain = chainsData.find((c) => c.slug === chainSlug);
+  // Convert slug back to readable name
+  const chainName = chainSlug
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
   const cityParts = cityState?.split("-") || [];
-  const stateCode = cityParts.pop()?.toUpperCase();
+  const stateCode = cityParts.pop()?.toUpperCase() || "";
   const city = cityParts.join("-");
-
-  if (!chain || !city || !stateCode) {
-    notFound();
-  }
 
   const cityFormatted = city
     .split("-")
@@ -36,7 +35,7 @@ export default function ChainCityPage() {
     .join(" ");
 
   useEffect(() => {
-    trackViewHours(chain.slug, cityFormatted);
+    trackViewHours(chainSlug, cityFormatted);
     fetchStatus();
   }, [chainSlug, cityState]);
 
@@ -71,7 +70,7 @@ export default function ChainCityPage() {
       }
 
       const params = new URLSearchParams({
-        chain_slug: chainSlug,
+        query: chainName,
         lat: location.lat.toString(),
         lng: location.lng.toString(),
       });
@@ -94,17 +93,11 @@ export default function ChainCityPage() {
   }
 
   function handleNewSearch() {
-    setSelectedChain(null);
-    setStatus(null);
-    setError(null);
     router.push("/");
   }
 
-  function handleChainSelect(newChain: Chain | null) {
-    if (newChain) {
-      setSelectedChain(newChain);
-      router.push(`/${newChain.slug}/${cityState}`);
-    }
+  function handleSearch(query: SearchResult) {
+    router.push(`/${query.slug}/${cityState}`);
   }
 
   return (
@@ -124,10 +117,9 @@ export default function ChainCityPage() {
             </button>
 
             <div className="flex-1 max-w-md">
-              <ChainAutocomplete
-                onSelect={handleChainSelect}
-                selectedChain={selectedChain}
-                placeholder="Search stores & restaurants..."
+              <SearchInput
+                onSearch={handleSearch}
+                placeholder="Search any business..."
               />
             </div>
 
@@ -151,7 +143,7 @@ export default function ChainCityPage() {
             status={status}
             isLoading={isLoading}
             error={error}
-            chainName={chain.name}
+            chainName={chainName}
             onNewSearch={handleNewSearch}
           />
         </div>

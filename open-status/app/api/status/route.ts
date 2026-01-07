@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { StatusResponse, GooglePlaceDetails, GoogleNearbySearchResult } from "@/lib/types/status";
-import { getCachedStatus, setCachedStatus, getCachedSearch, setCachedSearch } from "@/lib/cache";
+import {
+  StatusResponse,
+  GooglePlaceDetails,
+  GoogleNearbySearchResult,
+} from "@/lib/types/status";
+import {
+  getCachedStatus,
+  setCachedStatus,
+  getCachedSearch,
+  setCachedSearch,
+} from "@/lib/cache";
 
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
@@ -9,7 +18,7 @@ if (!GOOGLE_PLACES_API_KEY) {
 }
 
 async function searchNearbyPlace(
-  chainName: string,
+  query: string,
   lat: number,
   lng: number
 ): Promise<GoogleNearbySearchResult | null> {
@@ -17,18 +26,20 @@ async function searchNearbyPlace(
     throw new Error("Google Places API key not configured");
   }
 
-  const url = new URL("https://maps.googleapis.com/maps/api/place/nearbysearch/json");
+  // Use Text Search API for more flexible searching of any business
+  const url = new URL(
+    "https://maps.googleapis.com/maps/api/place/textsearch/json"
+  );
   url.searchParams.set("key", GOOGLE_PLACES_API_KEY);
+  url.searchParams.set("query", query);
   url.searchParams.set("location", `${lat},${lng}`);
-  url.searchParams.set("radius", "5000");
-  url.searchParams.set("keyword", chainName);
-  url.searchParams.set("type", "store");
+  url.searchParams.set("radius", "10000"); // 10km radius
 
   const response = await fetch(url.toString());
 
   if (!response.ok) {
     const error = await response.text();
-    console.error("Nearby search error:", error);
+    console.error("Text search error:", error);
     throw new Error(`Google Places API error: ${response.status}`);
   }
 
@@ -46,16 +57,20 @@ async function searchNearbyPlace(
   return {
     place_id: place.place_id,
     name: place.name,
-    vicinity: place.vicinity,
+    vicinity: place.formatted_address,
   };
 }
 
-async function getPlaceDetails(placeId: string): Promise<GooglePlaceDetails | null> {
+async function getPlaceDetails(
+  placeId: string
+): Promise<GooglePlaceDetails | null> {
   if (!GOOGLE_PLACES_API_KEY) {
     throw new Error("Google Places API key not configured");
   }
 
-  const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");
+  const url = new URL(
+    "https://maps.googleapis.com/maps/api/place/details/json"
+  );
   url.searchParams.set("key", GOOGLE_PLACES_API_KEY);
   url.searchParams.set("place_id", placeId);
   url.searchParams.set(
@@ -93,10 +108,17 @@ function formatTime(timeString: string): string {
 function parseOpeningHours(
   place: GooglePlaceDetails,
   currentTime: Date
-): Omit<StatusResponse, "placeName" | "address" | "placeId" | "timezone" | "businessStatus"> {
+): Omit<
+  StatusResponse,
+  "placeName" | "address" | "placeId" | "timezone" | "businessStatus"
+> {
   const openingHours = place.opening_hours;
 
-  if (!openingHours || !openingHours.weekday_text || openingHours.weekday_text.length === 0) {
+  if (
+    !openingHours ||
+    !openingHours.weekday_text ||
+    openingHours.weekday_text.length === 0
+  ) {
     return {
       isOpen: false,
       openNow: false,
@@ -113,10 +135,13 @@ function parseOpeningHours(
 
   if (openingHours.periods && openingHours.periods.length > 0) {
     const currentDay = currentTime.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const currentTimeMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const currentTimeMinutes =
+      currentTime.getHours() * 60 + currentTime.getMinutes();
 
     // Find today's period
-    const todayPeriod = openingHours.periods.find((p) => p.open.day === currentDay);
+    const todayPeriod = openingHours.periods.find(
+      (p) => p.open.day === currentDay
+    );
 
     if (todayPeriod && todayPeriod.close) {
       const closeTimeStr = todayPeriod.close.time;
@@ -149,11 +174,21 @@ function parseOpeningHours(
       if (!opensAt) {
         for (let i = 1; i <= 7; i++) {
           const checkDay = (currentDay + i) % 7;
-          const period = openingHours.periods.find((p) => p.open.day === checkDay);
+          const period = openingHours.periods.find(
+            (p) => p.open.day === checkDay
+          );
           if (period) {
             opensAt = formatTime(period.open.time);
             if (i > 1) {
-              const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+              const dayNames = [
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+              ];
               opensAt = `${opensAt} ${dayNames[checkDay]}`;
             } else {
               opensAt = `${opensAt} tomorrow`;
@@ -178,13 +213,14 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const placeId = searchParams.get("place_id");
-    const chainSlug = searchParams.get("chain_slug");
+    // Support both 'query' (new) and 'chain_slug' (legacy) params
+    const query = searchParams.get("query") || searchParams.get("chain_slug");
     const lat = searchParams.get("lat");
     const lng = searchParams.get("lng");
 
-    if (!placeId && (!chainSlug || !lat || !lng)) {
+    if (!placeId && (!query || !lat || !lng)) {
       return NextResponse.json(
-        { error: "Either place_id or chain_slug+lat+lng required" },
+        { error: "Either place_id or query+lat+lng required" },
         { status: 400 }
       );
     }
@@ -193,26 +229,26 @@ export async function GET(request: NextRequest) {
     let cacheHit = false;
 
     // If no place_id, search for nearby place first
-    if (!finalPlaceId && chainSlug && lat && lng) {
+    if (!finalPlaceId && query && lat && lng) {
       const latNum = parseFloat(lat);
       const lngNum = parseFloat(lng);
 
       // Check cache for search result
-      const cachedSearch = await getCachedSearch(chainSlug, latNum, lngNum);
+      const cachedSearch = await getCachedSearch(query, latNum, lngNum);
       if (cachedSearch) {
         finalPlaceId = cachedSearch.place_id;
         cacheHit = true;
       } else {
-        const nearbyResult = await searchNearbyPlace(chainSlug, latNum, lngNum);
+        const nearbyResult = await searchNearbyPlace(query, latNum, lngNum);
         if (!nearbyResult) {
           return NextResponse.json(
-            { error: "No nearby location found for this chain" },
+            { error: `No "${query}" found nearby` },
             { status: 404 }
           );
         }
         finalPlaceId = nearbyResult.place_id;
         // Cache the search result
-        await setCachedSearch(chainSlug, latNum, lngNum, nearbyResult);
+        await setCachedSearch(query, latNum, lngNum, nearbyResult);
       }
     }
 
@@ -221,16 +257,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Check cache for place details
-    let placeDetails: GooglePlaceDetails | null = null;
     const cachedStatus = await getCachedStatus(finalPlaceId);
+    let placeDetails: GooglePlaceDetails;
+
     if (cachedStatus) {
       placeDetails = cachedStatus;
       cacheHit = true;
     } else {
-      placeDetails = await getPlaceDetails(finalPlaceId);
-      if (!placeDetails) {
+      const fetchedDetails = await getPlaceDetails(finalPlaceId);
+      if (!fetchedDetails) {
         return NextResponse.json({ error: "Place not found" }, { status: 404 });
       }
+      placeDetails = fetchedDetails;
       // Cache the place details
       await setCachedStatus(finalPlaceId, placeDetails);
     }
@@ -242,7 +280,9 @@ export async function GET(request: NextRequest) {
     // Determine timezone (default to UTC if not provided)
     // utc_offset is in seconds for the standard API
     const timezone = placeDetails.utc_offset
-      ? `UTC${placeDetails.utc_offset >= 0 ? "+" : ""}${Math.floor(placeDetails.utc_offset / 3600)}`
+      ? `UTC${placeDetails.utc_offset >= 0 ? "+" : ""}${Math.floor(
+          placeDetails.utc_offset / 3600
+        )}`
       : "UTC";
 
     const response: StatusResponse = {
@@ -261,9 +301,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Status API error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
       { status: 500 }
     );
   }
 }
-
