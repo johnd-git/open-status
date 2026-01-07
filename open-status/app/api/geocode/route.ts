@@ -6,14 +6,9 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const zip = searchParams.get("zip");
-    const query = searchParams.get("query") || zip; // Support both zip and query params
-
-    if (!query) {
-      return NextResponse.json(
-        { error: "Location query required" },
-        { status: 400 }
-      );
-    }
+    const query = searchParams.get("query") || zip;
+    const lat = searchParams.get("lat");
+    const lng = searchParams.get("lng");
 
     if (!GOOGLE_PLACES_API_KEY) {
       return NextResponse.json(
@@ -24,7 +19,20 @@ export async function GET(request: NextRequest) {
 
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     url.searchParams.set("key", GOOGLE_PLACES_API_KEY);
-    url.searchParams.set("address", query);
+
+    // Reverse geocoding: lat/lng to address
+    if (lat && lng) {
+      url.searchParams.set("latlng", `${lat},${lng}`);
+    } 
+    // Forward geocoding: address to lat/lng
+    else if (query) {
+      url.searchParams.set("address", query);
+    } else {
+      return NextResponse.json(
+        { error: "Location query or coordinates required" },
+        { status: 400 }
+      );
+    }
 
     const response = await fetch(url.toString());
 
@@ -48,14 +56,22 @@ export async function GET(request: NextRequest) {
     let city = "";
     let state = "";
 
-    result.address_components.forEach((component: any) => {
-      if (component.types.includes("locality")) {
+    for (const component of result.address_components) {
+      // City can be in locality, sublocality, or neighborhood
+      if (!city && component.types.includes("locality")) {
         city = component.long_name;
       }
+      if (!city && component.types.includes("sublocality_level_1")) {
+        city = component.long_name;
+      }
+      if (!city && component.types.includes("neighborhood")) {
+        city = component.long_name;
+      }
+      // State/province
       if (component.types.includes("administrative_area_level_1")) {
         state = component.short_name;
       }
-    });
+    }
 
     return NextResponse.json({
       lat: location.lat,

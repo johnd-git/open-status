@@ -162,14 +162,22 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {location && (
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <MapPinIcon className="w-4 h-4 shrink-0" />
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <MapPinIcon className="w-4 h-4 shrink-0" />
+                {locationLoading ? (
+                  <span className="text-xs animate-pulse">Locating...</span>
+                ) : location?.city ? (
                   <span className="truncate max-w-[120px] sm:max-w-none">
                     {location.city}, {location.state}
                   </span>
-                </div>
-              )}
+                ) : location ? (
+                  <span className="truncate max-w-[120px] sm:max-w-none text-xs">
+                    {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+                  </span>
+                ) : (
+                  <span className="text-xs">No location</span>
+                )}
+              </div>
               <ThemeToggle />
             </div>
           </div>

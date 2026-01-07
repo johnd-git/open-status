@@ -7,6 +7,12 @@ interface Location {
   lng: number;
   city?: string;
   state?: string;
+  accuracy?: number; // meters
+}
+
+interface StoredLocation {
+  location: Location;
+  timestamp: number;
 }
 
 interface UseGeolocationReturn {
@@ -17,8 +23,9 @@ interface UseGeolocationReturn {
   refetch: () => void;
 }
 
-const STORAGE_KEY = "open-status-location";
-const GEOLOCATION_TIMEOUT = 5000;
+const STORAGE_KEY = "open-status-location-v2";
+const GEOLOCATION_TIMEOUT = 15000; // 15 seconds for high-accuracy GPS
+const CACHE_DURATION = 300000; // 5 minutes cache for location with city/state
 
 export function useGeolocation(): UseGeolocationReturn {
   const [location, setLocation] = useState<Location | null>(null);
@@ -31,7 +38,11 @@ export function useGeolocation(): UseGeolocationReturn {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const data: StoredLocation = JSON.parse(stored);
+        // Check if cached location is still fresh
+        if (data.timestamp && Date.now() - data.timestamp < CACHE_DURATION) {
+          return data.location;
+        }
       }
     } catch (e) {
       console.error("Failed to read location from localStorage", e);
@@ -42,10 +53,28 @@ export function useGeolocation(): UseGeolocationReturn {
   const saveLocationToStorage = useCallback((loc: Location) => {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
+      const data: StoredLocation = {
+        location: loc,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
       console.error("Failed to save location to localStorage", e);
     }
+  }, []);
+
+  // Reverse geocode coordinates to get city/state
+  const reverseGeocode = useCallback(async (lat: number, lng: number): Promise<{ city?: string; state?: string }> => {
+    try {
+      const response = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`);
+      if (response.ok) {
+        const data = await response.json();
+        return { city: data.city, state: data.state };
+      }
+    } catch (e) {
+      console.warn("Reverse geocoding failed:", e);
+    }
+    return {};
   }, []);
 
   const getLocationFromIP = useCallback(async (): Promise<Location | null> => {
@@ -58,7 +87,6 @@ export function useGeolocation(): UseGeolocationReturn {
       });
       clearTimeout(timeoutId);
 
-      // Handle rate limiting (429) and other errors gracefully
       if (response.status === 429) {
         console.warn("IP geolocation rate limited, skipping");
         return null;
@@ -71,7 +99,6 @@ export function useGeolocation(): UseGeolocationReturn {
 
       const data = await response.json();
 
-      // Check for error response from ipapi
       if (data.error) {
         console.warn("IP geolocation error:", data.reason || data.error);
         return null;
@@ -86,7 +113,6 @@ export function useGeolocation(): UseGeolocationReturn {
         };
       }
     } catch (e) {
-      // Handle abort and network errors silently
       if (e instanceof Error && e.name === "AbortError") {
         console.warn("IP geolocation request timed out");
       } else {
@@ -103,56 +129,69 @@ export function useGeolocation(): UseGeolocationReturn {
 
     // Check localStorage first
     const cached = getLocationFromStorage();
-    if (cached) {
+    if (cached && cached.city) {
       setLocation(cached);
       setState("success");
       setIsLoading(false);
       return;
     }
 
-    // Try HTML5 Geolocation
+    // Try HTML5 Geolocation with HIGH ACCURACY
     if (navigator.geolocation) {
-      const geoPromise = new Promise<Location | null>((resolve) => {
+      const geoPromise = new Promise<{ lat: number; lng: number; accuracy: number } | null>((resolve) => {
         const timeoutId = setTimeout(() => {
+          console.warn("High-accuracy geolocation timed out");
           resolve(null);
         }, GEOLOCATION_TIMEOUT);
 
         navigator.geolocation.getCurrentPosition(
           (position) => {
             clearTimeout(timeoutId);
+            console.log(`GPS accuracy: ${position.coords.accuracy}m`);
             resolve({
               lat: position.coords.latitude,
               lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
             });
           },
           (err) => {
             clearTimeout(timeoutId);
+            console.warn("Geolocation error:", err.message);
             if (err.code === err.PERMISSION_DENIED) {
               setState("denied");
-            } else {
-              setState("error");
             }
             resolve(null);
           },
           {
-            enableHighAccuracy: false,
+            enableHighAccuracy: true,
             timeout: GEOLOCATION_TIMEOUT,
-            maximumAge: 300000, // 5 minutes
+            maximumAge: 0,
           }
         );
       });
 
-      const geoLocation = await geoPromise;
-      if (geoLocation) {
-        saveLocationToStorage(geoLocation);
-        setLocation(geoLocation);
+      const geoResult = await geoPromise;
+      if (geoResult) {
+        // Got GPS coordinates, now reverse geocode to get city/state
+        const { city, state: stateCode } = await reverseGeocode(geoResult.lat, geoResult.lng);
+        
+        const fullLocation: Location = {
+          lat: geoResult.lat,
+          lng: geoResult.lng,
+          accuracy: geoResult.accuracy,
+          city,
+          state: stateCode,
+        };
+
+        saveLocationToStorage(fullLocation);
+        setLocation(fullLocation);
         setState("success");
         setIsLoading(false);
         return;
       }
     }
 
-    // Fallback to IP-based location
+    // Fallback to IP-based location (already includes city/state)
     const ipLocation = await getLocationFromIP();
     if (ipLocation) {
       saveLocationToStorage(ipLocation);
@@ -163,7 +202,7 @@ export function useGeolocation(): UseGeolocationReturn {
       setState("error");
     }
     setIsLoading(false);
-  }, [getLocationFromStorage, saveLocationToStorage, getLocationFromIP]);
+  }, [getLocationFromStorage, saveLocationToStorage, getLocationFromIP, reverseGeocode]);
 
   useEffect(() => {
     fetchLocation();
@@ -177,4 +216,3 @@ export function useGeolocation(): UseGeolocationReturn {
     refetch: fetchLocation,
   };
 }
-
