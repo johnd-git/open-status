@@ -33,3 +33,18 @@ export interface GoogleNearbySearchResult {
   vicinity?: string;
 }
 
+// For multi-result list view
+export interface NearbyPlace {
+  placeId: string;
+  name: string;
+  address: string;
+  distance: number; // in kilometers
+  distanceMiles: number;
+  isOpen: boolean | null; // null if unknown
+}
+
+export interface SearchResultsResponse {
+  results: NearbyPlace[];
+  query: string;
+}
+

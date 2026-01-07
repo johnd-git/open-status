@@ -1,76 +1,133 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { SearchInput, type SearchResult } from "@/components/search-input";
 import { StatusResult } from "@/components/status-result";
+import { SearchResultsList } from "@/components/search-results-list";
 import { useGeolocation } from "@/hooks/use-geolocation";
-import { StatusResponse } from "@/lib/types/status";
+import { StatusResponse, NearbyPlace, SearchResultsResponse } from "@/lib/types/status";
 import { trackSearch } from "@/lib/analytics";
-import { MapPinIcon, SearchIcon, ClockIcon } from "lucide-react";
+import { MapPinIcon, SearchIcon, ClockIcon, ArrowLeftIcon } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
+type ViewState = "home" | "list" | "detail";
+
 export default function HomePage() {
-  const [searchQuery, setSearchQuery] = useState<SearchResult | null>(null);
+  const [viewState, setViewState] = useState<ViewState>("home");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<NearbyPlace[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<NearbyPlace | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { location, isLoading: locationLoading } = useGeolocation();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (searchQuery && location) {
-      trackSearch(searchQuery.slug);
-      fetchStatus();
-    }
-  }, [searchQuery, location]);
+  // Perform search when query changes
+  async function performSearch(query: string) {
+    if (!query || !location) return;
 
-  async function fetchStatus() {
-    if (!searchQuery || !location) return;
-
-    setIsLoading(true);
+    setIsSearching(true);
     setError(null);
+    setSearchResults([]);
+    setViewState("list");
+    trackSearch(query);
 
     try {
       const params = new URLSearchParams({
-        query: searchQuery.name,
+        query,
         lat: location.lat.toString(),
         lng: location.lng.toString(),
+        limit: "8",
+      });
+
+      const response = await fetch(`/api/search?${params.toString()}`);
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Search failed");
+      }
+
+      const data: SearchResultsResponse = await response.json();
+      setSearchResults(data.results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  // Fetch details for a selected place
+  async function fetchPlaceDetails(place: NearbyPlace) {
+    setSelectedPlace(place);
+    setIsLoadingDetails(true);
+    setError(null);
+    setViewState("detail");
+
+    try {
+      const params = new URLSearchParams({
+        place_id: place.placeId,
       });
 
       const response = await fetch(`/api/status?${params.toString()}`);
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || "Failed to fetch status");
+        throw new Error(data.error || "Failed to fetch details");
       }
 
       const data: StatusResponse = await response.json();
       setStatus(data);
 
-      // Update URL to SEO-friendly format
+      // Update URL without navigation
+      const slug = place.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const cityState =
-        location.city && location.state
+        location?.city && location?.state
           ? `${location.city.toLowerCase().replace(/\s+/g, "-")}-${location.state.toLowerCase()}`
           : "nearby";
-      router.push(`/${searchQuery.slug}/${cityState}`, { scroll: false });
+      const newUrl = `/${slug}/${cityState}`;
+      window.history.replaceState(
+        { ...window.history.state, as: newUrl, url: newUrl },
+        "",
+        newUrl
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      setError(err instanceof Error ? err.message : "Failed to load details");
       setStatus(null);
     } finally {
-      setIsLoading(false);
+      setIsLoadingDetails(false);
     }
   }
 
-  function handleNewSearch() {
-    setSearchQuery(null);
-    setStatus(null);
-    setError(null);
-    router.push("/", { scroll: false });
+  function handleSearch(result: SearchResult) {
+    setSearchQuery(result.name);
+    performSearch(result.name);
   }
 
-  function handleSearch(query: SearchResult) {
-    setSearchQuery(query);
+  function handleBackToList() {
+    setViewState("list");
+    setSelectedPlace(null);
+    setStatus(null);
+    // Reset URL
+    window.history.replaceState(
+      { ...window.history.state, as: "/", url: "/" },
+      "",
+      "/"
+    );
+  }
+
+  function handleNewSearch() {
+    setViewState("home");
+    setSearchQuery("");
+    setSearchResults([]);
+    setSelectedPlace(null);
+    setStatus(null);
+    setError(null);
+    window.history.replaceState(
+      { ...window.history.state, as: "/", url: "/" },
+      "",
+      "/"
+    );
   }
 
   return (
@@ -113,7 +170,8 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {!searchQuery && !status && (
+        {/* Home View - Landing */}
+        {viewState === "home" && (
           <div className="max-w-2xl mx-auto text-center py-20">
             <div className="mb-8">
               <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30 mb-6">
@@ -123,7 +181,8 @@ export default function HomePage() {
                 Is it open?
               </h1>
               <p className="text-lg text-muted-foreground max-w-md mx-auto">
-                Search for any store, restaurant, or business to see if it&apos;s open right now.
+                Search for any store, restaurant, or business to see what&apos;s
+                open right now near you.
               </p>
             </div>
 
@@ -149,37 +208,82 @@ export default function HomePage() {
                   Popular searches
                 </p>
                 <div className="flex flex-wrap justify-center gap-2">
-                  {["Target", "Starbucks", "CVS", "Walmart", "Costco", "McDonald's"].map(
-                    (name) => (
-                      <button
-                        key={name}
-                        onClick={() => {
-                          handleSearch({
-                            name,
-                            slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-                            placeType: "store",
-                          });
-                        }}
-                        className="px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-sm font-medium transition-colors"
-                      >
-                        {name}
-                      </button>
-                    )
-                  )}
+                  {[
+                    "Food",
+                    "Coffee",
+                    "Gas",
+                    "Pharmacy",
+                    "Grocery",
+                    "Bank",
+                    "Gym",
+                    "Haircut",
+                  ].map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => {
+                        handleSearch({
+                          name,
+                          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                          placeType: "store",
+                        });
+                      }}
+                      className="px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-sm font-medium transition-colors"
+                    >
+                      {name}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Results */}
-        {(searchQuery || status || isLoading || error) && (
+        {/* List View - Search Results */}
+        {viewState === "list" && (
           <div className="max-w-lg mx-auto">
+            <SearchResultsList
+              results={searchResults}
+              query={searchQuery}
+              onSelect={fetchPlaceDetails}
+              isLoading={isSearching}
+            />
+
+            {error && !isSearching && (
+              <div className="mt-4 p-4 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-center">
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+              </div>
+            )}
+
+            <div className="mt-6 text-center">
+              <button
+                onClick={handleNewSearch}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                ← New search
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Detail View - Place Details */}
+        {viewState === "detail" && (
+          <div className="max-w-lg mx-auto">
+            {/* Back button */}
+            {searchResults.length > 1 && (
+              <button
+                onClick={handleBackToList}
+                className="mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowLeftIcon className="w-4 h-4" />
+                Back to results
+              </button>
+            )}
+
             <StatusResult
               status={status}
-              isLoading={isLoading}
+              isLoading={isLoadingDetails}
               error={error}
-              chainName={searchQuery?.name}
+              chainName={selectedPlace?.name}
               onNewSearch={handleNewSearch}
             />
           </div>

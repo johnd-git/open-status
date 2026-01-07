@@ -9,7 +9,10 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get("query") || zip; // Support both zip and query params
 
     if (!query) {
-      return NextResponse.json({ error: "Location query required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Location query required" },
+        { status: 400 }
+      );
     }
 
     if (!GOOGLE_PLACES_API_KEY) {
@@ -64,9 +67,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Geocode API error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
       { status: 500 }
     );
   }
 }
-

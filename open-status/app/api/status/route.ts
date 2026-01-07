@@ -17,6 +17,57 @@ if (!GOOGLE_PLACES_API_KEY) {
   console.warn("GOOGLE_PLACES_API_KEY is not set");
 }
 
+// Calculate distance between two coordinates using Haversine formula
+function getDistance(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Normalize a string for fuzzy matching
+function normalizeForMatching(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/['']/g, "") // Remove apostrophes
+    .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+    .replace(/\s+/g, " ") // Normalize spaces
+    .trim();
+}
+
+// Check if a business name matches the search query
+function nameMatchesQuery(name: string, query: string): boolean {
+  const normalizedName = normalizeForMatching(name);
+  const normalizedQuery = normalizeForMatching(query);
+
+  // Direct inclusion check
+  if (normalizedName.includes(normalizedQuery)) {
+    return true;
+  }
+
+  // Check if all words in the query appear in the name
+  const queryWords = normalizedQuery.split(" ").filter((w) => w.length > 2);
+  const nameWords = normalizedName.split(" ");
+
+  return queryWords.every((queryWord) =>
+    nameWords.some(
+      (nameWord) => nameWord.includes(queryWord) || queryWord.includes(nameWord)
+    )
+  );
+}
+
 async function searchNearbyPlace(
   query: string,
   lat: number,
@@ -33,7 +84,7 @@ async function searchNearbyPlace(
   url.searchParams.set("key", GOOGLE_PLACES_API_KEY);
   url.searchParams.set("query", query);
   url.searchParams.set("location", `${lat},${lng}`);
-  url.searchParams.set("radius", "10000"); // 10km radius
+  url.searchParams.set("radius", "16000"); // 16km radius (10 miles)
 
   const response = await fetch(url.toString());
 
@@ -53,7 +104,51 @@ async function searchNearbyPlace(
     return null;
   }
 
-  const place = data.results[0];
+  interface PlaceResult {
+    place_id: string;
+    name: string;
+    formatted_address: string;
+    geometry: {
+      location: {
+        lat: number;
+        lng: number;
+      };
+    };
+  }
+
+  // Filter results to only include places that actually match the query
+  const matchingResults = (data.results as PlaceResult[]).filter((place) =>
+    nameMatchesQuery(place.name, query)
+  );
+
+  if (matchingResults.length === 0) {
+    console.log(
+      `No matching results for "${query}". Got: ${data.results
+        .slice(0, 5)
+        .map((r: PlaceResult) => r.name)
+        .join(", ")}`
+    );
+    return null;
+  }
+
+  // Sort matching results by distance to return the closest one
+  const sortedResults = matchingResults.sort((a, b) => {
+    const distA = getDistance(
+      lat,
+      lng,
+      a.geometry.location.lat,
+      a.geometry.location.lng
+    );
+    const distB = getDistance(
+      lat,
+      lng,
+      b.geometry.location.lat,
+      b.geometry.location.lng
+    );
+    return distA - distB;
+  });
+
+  const place = sortedResults[0];
   return {
     place_id: place.place_id,
     name: place.name,
