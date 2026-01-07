@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SearchInput, type SearchResult } from "@/components/search-input";
 import { StatusResult } from "@/components/status-result";
 import { SearchResultsList } from "@/components/search-results-list";
+import { LocationModal } from "@/components/location-modal";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import {
   StatusResponse,
@@ -16,6 +17,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 type ViewState = "home" | "list" | "detail";
 
+const LOCATION_STORAGE_KEY = "open-status-location-v2";
+
 export default function HomePage() {
   const [viewState, setViewState] = useState<ViewState>("home");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -25,7 +28,21 @@ export default function HomePage() {
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { location, isLoading: locationLoading } = useGeolocation();
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const { location, isLoading: locationLoading, refetch: refetchLocation } = useGeolocation();
+
+  // Handle manual location selection from modal
+  function handleLocationSelect(newLocation: { lat: number; lng: number; city?: string; state?: string; accuracy?: number }) {
+    // Save to localStorage - use provided accuracy or default to 10m for user-entered addresses
+    if (typeof window !== "undefined") {
+      localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify({
+        location: { ...newLocation, accuracy: newLocation.accuracy ?? 10 },
+        timestamp: Date.now(),
+      }));
+    }
+    // Trigger re-render by refetching (will use cached value)
+    refetchLocation();
+  }
 
   // Perform search when query changes
   async function performSearch(query: string) {
@@ -162,14 +179,29 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {location && (
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <MapPinIcon className="w-4 h-4 shrink-0" />
+              <button
+                onClick={() => setShowLocationModal(true)}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                title={location?.accuracy ? `Accuracy: ~${Math.round(location.accuracy / 1000)}km - Click to set precise location` : "Click to set location"}
+              >
+                <MapPinIcon className={`w-4 h-4 shrink-0 ${location?.accuracy && location.accuracy > 1000 ? "text-amber-500" : ""}`} />
+                {locationLoading ? (
+                  <span className="text-xs animate-pulse">Locating...</span>
+                ) : location?.city ? (
                   <span className="truncate max-w-[120px] sm:max-w-none">
                     {location.city}, {location.state}
+                    {location.accuracy && location.accuracy > 5000 && (
+                      <span className="text-amber-500 ml-1">~</span>
+                    )}
                   </span>
-                </div>
-              )}
+                ) : location ? (
+                  <span className="truncate max-w-[120px] sm:max-w-none text-xs">
+                    {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+                  </span>
+                ) : (
+                  <span className="text-xs">Set location</span>
+                )}
+              </button>
               <ThemeToggle />
             </div>
           </div>
@@ -307,6 +339,14 @@ export default function HomePage() {
           </div>
         )}
       </main>
+
+      {/* Location Modal */}
+      <LocationModal
+        open={showLocationModal}
+        onOpenChange={setShowLocationModal}
+        onLocationSelect={handleLocationSelect}
+        currentLocation={location}
+      />
     </div>
   );
 }

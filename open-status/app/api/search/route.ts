@@ -211,23 +211,60 @@ export async function GET(request: NextRequest) {
       url.searchParams.set("type", placeType);
     }
 
-    const response = await fetch(url.toString());
+    console.log("Google Places API URL:", url.toString().replace(GOOGLE_PLACES_API_KEY!, "KEY_HIDDEN"));
+    
+    // Retry logic for transient errors
+    let data;
+    let lastError = "";
+    const maxRetries = 2;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const response = await fetch(url.toString());
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("Text search error:", error);
-      return NextResponse.json(
-        { error: `Google Places API error: ${response.status}` },
-        { status: 500 }
-      );
+      if (!response.ok) {
+        lastError = `HTTP error: ${response.status}`;
+        console.error(`Text search HTTP error (attempt ${attempt + 1}):`, response.status);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+          continue;
+        }
+        return NextResponse.json(
+          { error: `Google Places API error: ${response.status}` },
+          { status: 500 }
+        );
+      }
+
+      data = await response.json();
+      console.log(`Google Places API status (attempt ${attempt + 1}):`, data.status, data.error_message || "");
+
+      // UNKNOWN_ERROR is transient - retry
+      if (data.status === "UNKNOWN_ERROR" && attempt < maxRetries) {
+        lastError = "UNKNOWN_ERROR";
+        console.log(`Retrying due to UNKNOWN_ERROR (attempt ${attempt + 1})`);
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+
+      // Success or final attempt
+      if (data.status === "OK" || data.status === "ZERO_RESULTS") {
+        break;
+      }
+
+      // Other errors - don't retry
+      if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+        console.error("Google Places API error:", data.status, data.error_message);
+        return NextResponse.json(
+          { error: `Google Places API error: ${data.status} - ${data.error_message || "Unknown error"}` },
+          { status: 500 }
+        );
+      }
     }
-
-    const data = await response.json();
-
-    if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+    
+    // If we exhausted retries with UNKNOWN_ERROR
+    if (!data || (data.status === "UNKNOWN_ERROR")) {
       return NextResponse.json(
-        { error: `Google Places API error: ${data.status}` },
-        { status: 500 }
+        { error: "Google Places API temporarily unavailable. Please try again." },
+        { status: 503 }
       );
     }
 
