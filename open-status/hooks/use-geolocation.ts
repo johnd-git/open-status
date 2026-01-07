@@ -127,9 +127,9 @@ export function useGeolocation(): UseGeolocationReturn {
     setIsLoading(true);
     setError(null);
 
-    // Check localStorage first
+    // Check localStorage first - accept any cached location with coordinates
     const cached = getLocationFromStorage();
-    if (cached && cached.city) {
+    if (cached && cached.lat && cached.lng) {
       setLocation(cached);
       setState("success");
       setIsLoading(false);

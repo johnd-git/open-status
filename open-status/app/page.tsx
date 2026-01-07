@@ -32,11 +32,11 @@ export default function HomePage() {
   const { location, isLoading: locationLoading, refetch: refetchLocation } = useGeolocation();
 
   // Handle manual location selection from modal
-  function handleLocationSelect(newLocation: { lat: number; lng: number; city?: string; state?: string }) {
-    // Save to localStorage with high accuracy (user selected)
+  function handleLocationSelect(newLocation: { lat: number; lng: number; city?: string; state?: string; accuracy?: number }) {
+    // Save to localStorage - use provided accuracy or default to 10m for user-entered addresses
     if (typeof window !== "undefined") {
       localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify({
-        location: { ...newLocation, accuracy: 10 }, // User-selected = precise
+        location: { ...newLocation, accuracy: newLocation.accuracy ?? 10 },
         timestamp: Date.now(),
       }));
     }

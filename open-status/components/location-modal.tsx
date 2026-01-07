@@ -16,7 +16,7 @@ import { MapPinIcon, NavigationIcon, AlertTriangleIcon } from "lucide-react";
 interface LocationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLocationSelect: (location: { lat: number; lng: number; city?: string; state?: string }) => void;
+  onLocationSelect: (location: { lat: number; lng: number; city?: string; state?: string; accuracy?: number }) => void;
   currentLocation?: { lat: number; lng: number; city?: string; state?: string; accuracy?: number } | null;
 }
 
@@ -75,6 +75,7 @@ export function LocationModal({
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        const accuracy = position.coords.accuracy;
         try {
           // Got coordinates, now reverse geocode
           const response = await fetch(
@@ -88,11 +89,13 @@ export function LocationModal({
               lng: position.coords.longitude,
               city: data.city,
               state: data.state,
+              accuracy,
             });
           } else {
             onLocationSelect({
               lat: position.coords.latitude,
               lng: position.coords.longitude,
+              accuracy,
             });
           }
           onOpenChange(false);
@@ -100,6 +103,7 @@ export function LocationModal({
           onLocationSelect({
             lat: position.coords.latitude,
             lng: position.coords.longitude,
+            accuracy,
           });
           onOpenChange(false);
         } finally {
