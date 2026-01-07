@@ -104,19 +104,21 @@ export default function ChainCityPage() {
     <div className="min-h-screen bg-gradient-to-br from-zinc-50 via-white to-zinc-100 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/80 dark:bg-zinc-950/80 border-b border-zinc-200/50 dark:border-zinc-800/50">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-4 py-3">
+          {/* Top row: Logo + Location + Theme */}
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={handleNewSearch}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                <ClockIcon className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                <ClockIcon className="w-4 h-4 text-white" />
               </div>
               <span className="font-bold text-lg hidden sm:block">OpenNow</span>
             </button>
 
-            <div className="flex-1 max-w-md">
+            {/* Desktop search - hidden on mobile */}
+            <div className="hidden md:block flex-1 max-w-md">
               <SearchInput
                 onSearch={handleSearch}
                 placeholder="Search any business..."
@@ -124,7 +126,7 @@ export default function ChainCityPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="hidden lg:flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPinIcon className="w-4 h-4" />
                 <span>
                   {cityFormatted}, {stateCode}
@@ -132,6 +134,14 @@ export default function ChainCityPage() {
               </div>
               <ThemeToggle />
             </div>
+          </div>
+
+          {/* Mobile search - below toolbar */}
+          <div className="md:hidden mt-3">
+            <SearchInput
+              onSearch={handleSearch}
+              placeholder="Search any business..."
+            />
           </div>
         </div>
       </header>
