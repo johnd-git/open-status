@@ -75,7 +75,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 1. Push your code to GitHub
 2. Import your repository in [Vercel](https://vercel.com/new)
-3. Add all environment variables from `.env.example` in Vercel dashboard
+3. Add all environment variables (see "Environment Variables" section above) in Vercel dashboard
 4. Deploy!
 
 ### Post-Deployment Checklist

@@ -373,12 +373,13 @@ export async function GET(request: NextRequest) {
     const hoursData = parseOpeningHours(placeDetails, currentTime);
 
     // Determine timezone (default to UTC if not provided)
-    // utc_offset is in seconds for the standard API
-    const timezone = placeDetails.utc_offset
-      ? `UTC${placeDetails.utc_offset >= 0 ? "+" : ""}${Math.floor(
-          placeDetails.utc_offset / 3600
-        )}`
-      : "UTC";
+    // utc_offset is in minutes from UTC (per Google Places API docs)
+    const timezone =
+      placeDetails.utc_offset !== undefined
+        ? `UTC${placeDetails.utc_offset >= 0 ? "+" : ""}${Math.floor(
+            placeDetails.utc_offset / 60
+          )}`
+        : "UTC";
 
     const response: StatusResponse = {
       ...hoursData,

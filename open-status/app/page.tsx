@@ -163,9 +163,9 @@ export default function HomePage() {
 
             <div className="flex items-center gap-3">
               {location && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPinIcon className="w-4 h-4" />
-                  <span>
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <MapPinIcon className="w-4 h-4 shrink-0" />
+                  <span className="truncate max-w-[120px] sm:max-w-none">
                     {location.city}, {location.state}
                   </span>
                 </div>

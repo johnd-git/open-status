@@ -3,13 +3,18 @@
 import { track } from "@vercel/analytics";
 
 export function trackEvent(eventName: string, props?: Record<string, string>) {
-  if (typeof window !== "undefined") {
-    track(eventName, props);
+  try {
+    if (typeof window !== "undefined") {
+      track(eventName, props);
+    }
+  } catch (e) {
+    // Silently fail - analytics should never break the app
+    console.debug("Analytics error:", e);
   }
 }
 
-export function trackSearch(chainSlug: string) {
-  trackEvent("search_chain", { chain: chainSlug });
+export function trackSearch(query: string) {
+  trackEvent("search", { query });
 }
 
 export function trackLocationChange() {

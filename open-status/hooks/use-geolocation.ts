@@ -50,10 +50,33 @@ export function useGeolocation(): UseGeolocationReturn {
 
   const getLocationFromIP = useCallback(async (): Promise<Location | null> => {
     try {
-      const response = await fetch("https://ipapi.co/json/");
-      if (!response.ok) throw new Error("IP geolocation failed");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch("https://ipapi.co/json/", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // Handle rate limiting (429) and other errors gracefully
+      if (response.status === 429) {
+        console.warn("IP geolocation rate limited, skipping");
+        return null;
+      }
+
+      if (!response.ok) {
+        console.warn(`IP geolocation failed with status ${response.status}`);
+        return null;
+      }
+
       const data = await response.json();
-      
+
+      // Check for error response from ipapi
+      if (data.error) {
+        console.warn("IP geolocation error:", data.reason || data.error);
+        return null;
+      }
+
       if (data.latitude && data.longitude) {
         return {
           lat: data.latitude,
@@ -63,7 +86,12 @@ export function useGeolocation(): UseGeolocationReturn {
         };
       }
     } catch (e) {
-      console.error("IP geolocation error:", e);
+      // Handle abort and network errors silently
+      if (e instanceof Error && e.name === "AbortError") {
+        console.warn("IP geolocation request timed out");
+      } else {
+        console.warn("IP geolocation error:", e);
+      }
     }
     return null;
   }, []);
